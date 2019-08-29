@@ -21,13 +21,23 @@ namespace asio = boost::asio;
 using tcp = asio::ip::tcp;
 
 
+// enum class content_type
+// {
+// 	text="",
+// 	json="",
+// };
+
+const std::string content_type_json = "application/json";
+const std::string content_type_text = "text/plain";
+
+
 // https://www.boost.org/doc/libs/master/libs/beast/example/http/client/async/http_client_async.cpp
 class session : public std::enable_shared_from_this<session>
 {
 	tcp::resolver resolver_;
 	beast::tcp_stream stream_;
 	beast::flat_buffer buffer_; // (Must persist between reads)
-	http::request<http::empty_body> req_;
+	http::request<http::string_body> req_;
 	http::response<http::string_body> res_;
 
 public:
@@ -43,18 +53,56 @@ public:
 	{
 	}
 
+	std::string host;
+	std::string port;
+	std::string target;
+	int version;
 
-	void run(std::string host,
-	         std::string port,
-	         std::string target,
-	         int version)
+	void configRequest(std::string host,
+	                   std::string port,
+	                   std::string target,
+	                   http::verb method = http::verb::get,
+	                   std::string content_type = content_type_text,
+	                   std::string body = "",
+	                   int version = 10)
 	{
-		// Set up an HTTP GET request message
+		this->host = host;
+		this->port = port;
+		this->target = target;
+		this->version = version;
+
+		// Set up an request message
 		req_.version(version);
-		req_.method(http::verb::get);
+		req_.method(method);
 		req_.target(target);
 		req_.set(http::field::host, host);
 		req_.set(http::field::user_agent, BOOST_BEAST_VERSION_STRING);
+
+		// req_.set(http::field::body, body);
+
+		// req_.set(http::field::content_type, "application/json");
+		// req_.body() = body;
+
+		// req_.set(beast::http::field::content_type, "text/plain");
+		// req_.body() = body;
+
+		req_.set(http::field::content_type, content_type);
+		req_.body() = body;
+		req_.prepare_payload();
+	}
+
+	// void run(std::string host,
+	//          std::string port,
+	//          std::string target,
+	//          int version)
+	void run()
+	{
+		// // Set up an HTTP GET request message
+		// req_.version(version);
+		// req_.method(http::verb::get);
+		// req_.target(target);
+		// req_.set(http::field::host, host);
+		// req_.set(http::field::user_agent, BOOST_BEAST_VERSION_STRING);
 
 		resolver_.async_resolve(
 			host,
@@ -133,6 +181,9 @@ public:
 		}
 
 		std::cout << res_ << std::endl;
+		std::cout << "===================================" << std::endl;
+		std::cout << res_.body() << std::endl;
+		std::cout << "===================================" << std::endl;
 
 		stream_.socket().shutdown(tcp::socket::shutdown_both, ec);
 
@@ -154,10 +205,16 @@ int main()
 
 	std::string host = "localhost";
 	std::string port = "3000";
-	std::string target = "/test";
-	int version = 11;
+	// std::string target = "/test";
+	std::string target = "/json";
+	int version = 10;
 
-	std::make_shared<session>(ioc)->run(host, port, target, version);
+	auto se = std::make_shared<session>(ioc);
+	// se->configRequest(host, port, target);
+	// se->configRequest(host, port, target, http::verb::post);
+	se->configRequest(host, port, target, http::verb::post,
+	                  content_type_json, R"({"test":123,"foobar":987654321})");
+	se->run();
 
 	ioc.run();
 
