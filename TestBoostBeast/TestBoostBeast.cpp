@@ -4,11 +4,15 @@
 #include <iostream>
 #include <string>
 #include <cstdlib>
+#include <functional>
+#include <memory>
+#include <chrono>
 #include <boost/beast/core.hpp>
 #include <boost/beast/http.hpp>
 #include <boost/beast/version.hpp>
 #include <boost/asio/connect.hpp>
 #include <boost/asio/ip/tcp.hpp>
+#include <boost/asio/strand.hpp>
 
 
 namespace beast = boost::beast;
@@ -17,7 +21,152 @@ namespace asio = boost::asio;
 using tcp = asio::ip::tcp;
 
 
+// https://www.boost.org/doc/libs/master/libs/beast/example/http/client/async/http_client_async.cpp
+class session : public std::enable_shared_from_this<session>
+{
+	tcp::resolver resolver_;
+	beast::tcp_stream stream_;
+	beast::flat_buffer buffer_; // (Must persist between reads)
+	http::request<http::empty_body> req_;
+	http::response<http::string_body> res_;
+
+public:
+
+	static void fail(beast::error_code ec, char const* what)
+	{
+		std::cerr << what << ": " << ec.message() << "\n";
+	}
+
+	explicit session(asio::io_context& ioc)
+		: resolver_(asio::make_strand(ioc))
+		  , stream_(asio::make_strand(ioc))
+	{
+	}
+
+
+	void run(std::string host,
+	         std::string port,
+	         std::string target,
+	         int version)
+	{
+		// Set up an HTTP GET request message
+		req_.version(version);
+		req_.method(http::verb::get);
+		req_.target(target);
+		req_.set(http::field::host, host);
+		req_.set(http::field::user_agent, BOOST_BEAST_VERSION_STRING);
+
+		resolver_.async_resolve(
+			host,
+			port,
+			beast::bind_front_handler(
+				&session::on_resolve,
+				shared_from_this()
+			)
+		);
+	}
+
+	void on_resolve(beast::error_code ec, tcp::resolver::results_type results)
+	{
+		if (ec)
+		{
+			return session::fail(ec, "resolve");
+		}
+
+		stream_.expires_after(std::chrono::seconds{30});
+
+		stream_.async_connect(
+			results,
+			beast::bind_front_handler(
+				&session::on_connect,
+				shared_from_this()
+			)
+		);
+	}
+
+	void on_connect(beast::error_code ec, tcp::resolver::results_type::endpoint_type)
+	{
+		if (ec)
+		{
+			return session::fail(ec, "connect");
+		}
+
+		stream_.expires_after(std::chrono::seconds{30});
+
+		http::async_write(
+			stream_,
+			req_,
+			beast::bind_front_handler(
+				&session::on_write,
+				shared_from_this()
+			)
+		);
+	}
+
+	void on_write(beast::error_code ec, std::size_t bytes_transferred)
+	{
+		boost::ignore_unused(bytes_transferred);
+
+		if (ec)
+		{
+			return session::fail(ec, "write");
+		}
+
+		http::async_read(
+			stream_,
+			buffer_,
+			res_,
+			beast::bind_front_handler(
+				&session::on_read,
+				shared_from_this()
+			)
+		);
+	}
+
+	void on_read(beast::error_code ec, std::size_t bytes_transferred)
+	{
+		boost::ignore_unused(bytes_transferred);
+
+		if (ec)
+		{
+			return session::fail(ec, "read");
+		}
+
+		std::cout << res_ << std::endl;
+
+		stream_.socket().shutdown(tcp::socket::shutdown_both, ec);
+
+		if (ec && ec != beast::errc::not_connected)
+		{
+			return fail(ec, "shutdown");
+		}
+
+		// If we get here then the connection is closed gracefully
+	}
+};
+
+// async version
 int main()
+{
+	std::cout << "Hello World!\n";
+
+	asio::io_context ioc;
+
+	std::string host = "localhost";
+	std::string port = "3000";
+	std::string target = "/test";
+	int version = 11;
+
+	std::make_shared<session>(ioc)->run(host, port, target, version);
+
+	ioc.run();
+
+	return 0;
+}
+
+// sync version
+// https://www.boost.org/doc/libs/master/libs/beast/doc/html/beast/quick_start/http_client.html
+int main01()
 {
 	std::cout << "Hello World!\n";
 
