@@ -21,15 +21,8 @@ namespace asio = boost::asio;
 using tcp = asio::ip::tcp;
 
 
-// enum class content_type
-// {
-// 	text="",
-// 	json="",
-// };
-
 const std::string content_type_json = "application/json";
 const std::string content_type_text = "text/plain";
-
 
 // https://www.boost.org/doc/libs/master/libs/beast/example/http/client/async/http_client_async.cpp
 class session : public std::enable_shared_from_this<session>
@@ -62,8 +55,6 @@ public:
 	                   std::string port,
 	                   std::string target,
 	                   http::verb method = http::verb::get,
-	                   std::string content_type = content_type_text,
-	                   std::string body = "",
 	                   int version = 10)
 	{
 		this->host = host;
@@ -77,16 +68,32 @@ public:
 		req_.target(target);
 		req_.set(http::field::host, host);
 		req_.set(http::field::user_agent, BOOST_BEAST_VERSION_STRING);
+	}
 
-		// req_.set(http::field::body, body);
+	void setHeader(std::string key, std::string value)
+	{
+		req_.set(key, value);
+	}
 
-		// req_.set(http::field::content_type, "application/json");
-		// req_.body() = body;
-
-		// req_.set(beast::http::field::content_type, "text/plain");
-		// req_.body() = body;
-
+	void setBody(
+		std::string content_type = content_type_text,
+		std::string body = "")
+	{
 		req_.set(http::field::content_type, content_type);
+		req_.body() = body;
+		req_.prepare_payload();
+	}
+
+	void setBodyJson(std::string body = "")
+	{
+		req_.set(http::field::content_type, content_type_json);
+		req_.body() = body;
+		req_.prepare_payload();
+	}
+
+	void setBodyText(std::string body = "")
+	{
+		req_.set(http::field::content_type, content_type_text);
 		req_.body() = body;
 		req_.prepare_payload();
 	}
@@ -209,12 +216,14 @@ int main()
 	std::string target = "/json";
 	int version = 10;
 
-	auto se = std::make_shared<session>(ioc);
+	auto httpSession = std::make_shared<session>(ioc);
 	// se->configRequest(host, port, target);
-	// se->configRequest(host, port, target, http::verb::post);
-	se->configRequest(host, port, target, http::verb::post,
-	                  content_type_json, R"({"test":123,"foobar":987654321})");
-	se->run();
+	httpSession->configRequest(host, port, target, http::verb::post);
+	httpSession->setHeader("X-Secret-Key", "EncryptedHandshakeKey");
+	httpSession->setHeader("X-Secret-Token", "EncryptedHandshakeToken");
+	// se->setBody(content_type_json, R"({"test":123,"foobar":987654321})");
+	httpSession->setBodyJson(R"({"test":123,"foobar":987654321})");
+	httpSession->run();
 
 	ioc.run();
 
