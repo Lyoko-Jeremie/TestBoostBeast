@@ -279,12 +279,15 @@ void io_thread_main()
 
 				{
 					pt::ptree json;
-					json.put("test", 123);
-					json.put("foobar", 987654321);
+					json.put<int>("test", 123);
+					json.put<int>("foobar", 987654321);
 
-					json.add("listFoo", 1);
-					json.add("listFoo", 2);
-					json.add("listFoo", 3);
+					// https://stackoverflow.com/questions/2114466/creating-json-arrays-in-boost-using-property-trees
+					pt::ptree listFoo;
+					listFoo.push_back(std::make_pair("", pt::ptree{}.put<int>("", 1)));
+					listFoo.push_back(std::make_pair("", pt::ptree{}.put<int>("", 2)));
+					listFoo.push_back(std::make_pair("", pt::ptree{}.put<int>("", 3)));
+					json.put_child("listFoo", listFoo);
 
 					std::stringstream jsonString;
 					pt::write_json(jsonString, json);
