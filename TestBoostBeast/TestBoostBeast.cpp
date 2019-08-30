@@ -2,12 +2,14 @@
 //
 
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <cstdlib>
 #include <functional>
 #include <memory>
 #include <chrono>
 #include <thread>
+#include <optional>
 #include <boost/beast/core.hpp>
 #include <boost/beast/http.hpp>
 #include <boost/beast/version.hpp>
@@ -15,11 +17,15 @@
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/strand.hpp>
 
+#include <boost/property_tree/ptree.hpp>
+#include <boost/property_tree/json_parser.hpp>
 
 namespace beast = boost::beast;
 namespace http = beast::http;
 namespace asio = boost::asio;
 using tcp = asio::ip::tcp;
+
+namespace pt = boost::property_tree;
 
 
 const std::string content_type_json = "application/json";
@@ -34,12 +40,15 @@ class session : public std::enable_shared_from_this<session>
 	http::request<http::string_body> req_;
 	http::response<http::string_body> res_;
 
-public:
-
-	static void fail(beast::error_code ec, char const* what)
+private:
+	void fail(beast::error_code ec, char const* what)
 	{
 		std::cerr << what << ": " << ec.message() << "\n";
+		if (responseCallback.has_value())
+			responseCallback.value()(session::ResponseCallbackErrorTypeStruct{ec, std::string{what}}, res_);
 	}
+
+public:
 
 	explicit session(asio::io_context& ioc)
 		: resolver_(asio::make_strand(ioc))
@@ -122,11 +131,12 @@ public:
 		);
 	}
 
+private:
 	void on_resolve(beast::error_code ec, tcp::resolver::results_type results)
 	{
 		if (ec)
 		{
-			return session::fail(ec, "resolve");
+			return fail(ec, "resolve");
 		}
 
 		stream_.expires_after(std::chrono::seconds{30});
@@ -144,7 +154,7 @@ public:
 	{
 		if (ec)
 		{
-			return session::fail(ec, "connect");
+			return fail(ec, "connect");
 		}
 
 		stream_.expires_after(std::chrono::seconds{30});
@@ -165,7 +175,7 @@ public:
 
 		if (ec)
 		{
-			return session::fail(ec, "write");
+			return fail(ec, "write");
 		}
 
 		http::async_read(
@@ -185,7 +195,7 @@ public:
 
 		if (ec)
 		{
-			return session::fail(ec, "read");
+			return fail(ec, "read");
 		}
 
 		std::cout << res_ << std::endl;
@@ -201,7 +211,32 @@ public:
 		}
 
 		// If we get here then the connection is closed gracefully
+
+		if (responseCallback.has_value())
+			responseCallback.value()({}, res_);
 	}
+
+public:
+	// void noop_callback(std::optional<std::tuple<beast::error_code, std::string>> error, decltype(res_) response)
+	// {
+	// 	/* do nothing */
+	// }
+
+	struct ResponseCallbackErrorTypeStruct
+	{
+		beast::error_code ec;
+		std::string what;
+
+		ResponseCallbackErrorTypeStruct(beast::error_code ec, std::string what)
+			: ec(ec), what(what)
+		{
+		}
+	};
+
+	using responseCallbackErrorType = std::optional<ResponseCallbackErrorTypeStruct>;
+	using responseCallbackResponseType = decltype(res_)&;
+	using responseCallbackType = std::function<void(responseCallbackErrorType, responseCallbackResponseType)>;
+	std::optional<responseCallbackType> responseCallback;
 };
 
 
@@ -209,17 +244,23 @@ void io_thread_main()
 {
 	asio::io_context ioc;
 
+	// debug 
+	bool isAdded = false;
+	bool isEnd = false;
+
 	while (true)
 	{
 		// TODO check exit flag
-		if (false /*TODO condition*/)
+		if (false || isEnd /*TODO condition*/)
 		{
 			break;
 		}
 
 		// TODO check to add next httpSession to ioc
-		if (true /*TODO condition*/)
+		if (true && !isAdded /*TODO condition*/)
 		{
+			isAdded = true;
+
 			try
 			{
 				std::string host = "localhost";
@@ -234,13 +275,67 @@ void io_thread_main()
 				httpSession->setHeader("X-Secret-Key", "EncryptedHandshakeKey");
 				httpSession->setHeader("X-Secret-Token", "EncryptedHandshakeToken");
 				// se->setBody(content_type_json, R"({"test":123,"foobar":987654321})");
-				httpSession->setBodyJson(R"({"test":123,"foobar":987654321})");
+				// httpSession->setBodyJson(R"({"test":123,"foobar":987654321})");
+
+				{
+					pt::ptree json;
+					json.put("test", 123);
+					json.put("foobar", 987654321);
+
+					json.add("listFoo", 1);
+					json.add("listFoo", 2);
+					json.add("listFoo", 3);
+
+					std::stringstream jsonString;
+					pt::write_json(jsonString, json);
+					httpSession->setBodyJson(jsonString.str());
+				}
+
+				httpSession->responseCallback = [&isEnd](session::responseCallbackErrorType E,
+				                                         session::responseCallbackResponseType res)
+				{
+					isEnd = true;
+
+					if (E.has_value())
+					{
+						std::cerr << "responseCallback error: " << E.value().what
+							<< " : " << E.value().ec.message() << std::endl;
+						return;
+					}
+
+					std::stringstream jsonString;
+					jsonString.str(res.body());
+
+					try
+					{
+						pt::ptree json;
+						pt::read_json(jsonString, json);
+
+						auto test = json.get<int>("test");
+						auto foo = json.get<int>("foo");
+						auto bar = json.get_optional<int>("bar");
+
+						std::cout << "responseCallback the data : "
+							<< "\n\t" << "test:" << test
+							<< "\n\t" << "foo:" << foo
+							<< "\n\t" << "bar:" << bar.value_or(0)
+							<< (bar.has_value() ? " (real value)" : " (default value)")
+							<< std::endl;
+					}
+					catch (std::exception const& e)
+					{
+						std::cerr << "responseCallback json error: " << e.what() << std::endl;
+						return;
+					}
+				};
+
 				httpSession->run();
 			}
 			catch (std::exception const& e)
 			{
 				std::cerr << e.what() << std::endl;
 				// TODO
+				throw e;
 			}
 		}
 
