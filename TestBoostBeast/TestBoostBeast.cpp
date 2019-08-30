@@ -303,6 +303,30 @@ void io_thread_main()
 						return;
 					}
 
+					if (res.result() != http::status::ok)
+					{
+						std::cerr << "responseCallback http state not ok, reason : " << res.reason() << std::endl;
+						return;
+					}
+
+					std::cout << "responseCallback is keep-alive: " << res.keep_alive() << "\n";
+
+					std::cout << "responseCallback header data : "
+						<< "\n\t" << "X-Powered-By: " << res["X-Powered-By"]
+						<< "\n\t" << "ETag: " << res["ETag"]
+						<< "\n\t" << "http::field::etag: " << res[http::field::etag]
+						<< "\n\t" << "Connection: " << res["Connection"]
+						<< "\n\t" << "http::field::connection: " << res[http::field::connection]
+						<< std::endl;
+
+					std::cout << "responseCallback header data all : ================ " << "\n";
+					for (auto const& field : res)
+					{
+						std::cout << "\t" <<
+							field.name() << " : " << field.name_string() << " = " << field.value() << "\n";
+					}
+					std::cout << "=================================================== " << "\n";
+
 					std::stringstream jsonString;
 					jsonString.str(res.body());
 
@@ -315,7 +339,7 @@ void io_thread_main()
 						auto foo = json.get<int>("foo");
 						auto bar = json.get_optional<int>("bar");
 
-						std::cout << "responseCallback the data : "
+						std::cout << "responseCallback json data : "
 							<< "\n\t" << "test:" << test
 							<< "\n\t" << "foo:" << foo
 							<< "\n\t" << "bar:" << bar.value_or(0)
