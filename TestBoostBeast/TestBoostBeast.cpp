@@ -7,6 +7,7 @@
 #include <functional>
 #include <memory>
 #include <chrono>
+#include <thread>
 #include <boost/beast/core.hpp>
 #include <boost/beast/http.hpp>
 #include <boost/beast/version.hpp>
@@ -203,8 +204,66 @@ public:
 	}
 };
 
-// async version
+
+void io_thread_main()
+{
+	asio::io_context ioc;
+
+	while (true)
+	{
+		// TODO check exit flag
+		if (false /*TODO condition*/)
+		{
+			break;
+		}
+
+		// TODO check to add next httpSession to ioc
+		if (true /*TODO condition*/)
+		{
+			try
+			{
+				std::string host = "localhost";
+				std::string port = "3000";
+				// std::string target = "/test";
+				std::string target = "/json";
+				int version = 10;
+
+				auto httpSession = std::make_shared<session>(ioc);
+				// se->configRequest(host, port, target);
+				httpSession->configRequest(host, port, target, http::verb::post);
+				httpSession->setHeader("X-Secret-Key", "EncryptedHandshakeKey");
+				httpSession->setHeader("X-Secret-Token", "EncryptedHandshakeToken");
+				// se->setBody(content_type_json, R"({"test":123,"foobar":987654321})");
+				httpSession->setBodyJson(R"({"test":123,"foobar":987654321})");
+				httpSession->run();
+			}
+			catch (std::exception const& e)
+			{
+				std::cerr << e.what() << std::endl;
+				// TODO
+			}
+		}
+
+		ioc.run_for(std::chrono::microseconds{500});
+
+		std::this_thread::yield();
+	}
+}
+
 int main()
+{
+	std::cout << "Hello World!\n";
+
+	std::thread io_th{io_thread_main};
+
+	io_th.join();
+
+	return 0;
+}
+
+
+// async version
+int main02()
 {
 	std::cout << "Hello World!\n";
 
